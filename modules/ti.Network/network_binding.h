@@ -32,7 +32,7 @@ namespace ti
 	class NetworkBinding : public StaticBoundObject
 	{
 	public:
-		NetworkBinding(Host*);
+		NetworkBinding(Host*,std::string);
 		virtual ~NetworkBinding();
 
 		static void RemoveBinding(void* binding);
@@ -42,6 +42,7 @@ namespace ti
 
 	private:
 		Host* host;
+		std::string modulePath;
 		SharedKObject global;
 		Proxy * proxy;
 		static std::vector<SharedKObject> bindings;
@@ -62,6 +63,8 @@ namespace ti
 		void CreateTCPSocket(const ValueList& args, SharedValue result);
 		void CreateIRCClient(const ValueList& args, SharedValue result);
 		void CreateHTTPClient(const ValueList& args, SharedValue result);
+		void CreateHTTPServer(const ValueList& args, SharedValue result);
+
 		void EncodeURIComponent(const ValueList &args, SharedValue result);
 		void DecodeURIComponent(const ValueList &args, SharedValue result);
 		

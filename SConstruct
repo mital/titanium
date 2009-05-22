@@ -10,11 +10,12 @@ EnsurePythonVersion(2,5)
 import os, re, sys, inspect, os.path as path
 from sets import Set
 import subprocess, distutils.dir_util as dir_util
-
+sys.path.append(path.join(path.abspath('.'), 'build'))
+import titanium_version
 
 from kroll import BuildConfig
 build = BuildConfig(
-	PRODUCT_VERSION = '0.4',
+	PRODUCT_VERSION = titanium_version.version,
 	INSTALL_PREFIX = '/usr/local',
 	PRODUCT_NAME = 'Titanium',
 	GLOBAL_NS_VARNAME = 'Titanium',
@@ -28,8 +29,6 @@ build.set_kroll_source_dir(path.abspath('kroll'))
 
 build.titanium_source_dir = path.abspath('.')
 build.titanium_support_dir = path.join(build.titanium_source_dir, 'support', build.os)
-build.sdk_build_dir = path.join(build.dir, 'titanium-developer-' + build.version)
-if build.is_osx(): build.sdk_build_dir = path.join(build.sdk_build_dir + '.app')
 
 # This should only be used for accessing various
 # scripts in the kroll build directory. All resources

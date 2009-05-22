@@ -22,13 +22,14 @@ namespace ti
 	class HTTPClientBinding : public StaticBoundObject
 	{
 	public:
-		HTTPClientBinding(Host* host);
+		HTTPClientBinding(Host* host, std::string path);
 		virtual ~HTTPClientBinding();
 		
 		SharedValue GetSelf() { return self;}
 		
 	private:
 		Host* host;
+		std::string modulePath;
 		SharedKObject global;
 		Poco::Thread *thread;
 		std::string url;
@@ -44,6 +45,7 @@ namespace ti
 		std::string datastream;
 		std::string dirstream;
 		int timeout;
+		static bool initialized;
 		
 		static void Run(void*);
 		

@@ -14,20 +14,37 @@
 #include <sstream>
 #include <fstream>
 #include "../network_binding.h"
-#include "Poco/Buffer.h"
-#include "Poco/Net/MultipartWriter.h"
-#include "Poco/Net/MessageHeader.h"
-#include "Poco/Net/FilePartSource.h"
-#include "Poco/File.h"
-#include "Poco/Timespan.h"
-#include "Poco/Net/HTMLForm.h"
-#include "Poco/Zip/Compress.h"
-#include "Poco/Zip/ZipCommon.h"
+#include <Poco/Buffer.h>
+#include <Poco/Net/MultipartWriter.h>
+#include <Poco/Net/MessageHeader.h>
+#include <Poco/Net/FilePartSource.h>
+#include <Poco/File.h>
+#include <Poco/Timespan.h>
+#include <Poco/Net/HTMLForm.h>
+#include <Poco/Zip/Compress.h>
+#include <Poco/Zip/ZipCommon.h>
+
+#ifdef verify
+#define __verify verify
+#undef verify
+#endif
+
+#include <Poco/Net/HTTPSClientSession.h>
+#include <Poco/Net/SSLManager.h>
+#include <Poco/Net/KeyConsoleHandler.h>
+#include <Poco/Net/AcceptCertificateHandler.h>
+
+#ifdef __verify
+#define verify __verify
+#undef __verify
+#endif
 
 namespace ti
 {
-	HTTPClientBinding::HTTPClientBinding(Host* host) :
-		host(host),global(host->GetGlobalObject()),
+	bool HTTPClientBinding::initialized = false;
+	
+	HTTPClientBinding::HTTPClientBinding(Host* host, std::string path) :
+		host(host),modulePath(path),global(host->GetGlobalObject()),
 		thread(NULL),response(NULL),async(true),filestream(NULL),
 		timeout(30000)
 	{
@@ -148,6 +165,7 @@ namespace ti
 			delete this->filestream;
 			this->filestream = NULL;
 		}
+		NetworkBinding::RemoveBinding(this);
 	}
 	void HTTPClientBinding::Run (void* p)
 	{
@@ -158,6 +176,7 @@ namespace ti
 
 		PRINTD("HTTPClientBinding:: starting => " << binding->url);
 		
+		Poco::Net::HTTPResponse res;
 		std::ostringstream ostr;
 		int max_redirects = 5;
 		int status;
@@ -171,11 +190,35 @@ namespace ti
 			std::string path(uri.getPathAndQuery());
 			if (path.empty()) path = "/";
 			binding->Set("connected",Value::NewBool(true));
-			Poco::Net::HTTPClientSession session(uri.getHost(), uri.getPort());
+			
+			const std::string& scheme = uri.getScheme();
+			SharedPtr<Poco::Net::HTTPClientSession> session;
+			
+			if (scheme=="https")
+			{
+				if (HTTPClientBinding::initialized==false)
+				{
+					HTTPClientBinding::initialized = true;
+					SharedPtr<Poco::Net::InvalidCertificateHandler> ptrCert = new Poco::Net::AcceptCertificateHandler(false); 
+					std::string rootpem = FileUtils::Join(binding->modulePath.c_str(),"rootcert.pem",NULL);
+					Poco::Net::Context::Ptr ptrContext = new Poco::Net::Context(Poco::Net::Context::CLIENT_USE,"", "", rootpem, Poco::Net::Context::VERIFY_NONE, 9, false, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+					Poco::Net::SSLManager::instance().initializeClient(0, ptrCert, ptrContext);
+				}
+				session = new Poco::Net::HTTPSClientSession(uri.getHost(), uri.getPort());
+			}
+			else if (scheme=="http")
+			{
+				session = new Poco::Net::HTTPClientSession(uri.getHost(), uri.getPort());
+			}
+			else
+			{
+				//FIXME - we need to notify of unsupported error here
+			}
+			
 			
 			// set the timeout for the request
 			Poco::Timespan to((long)binding->timeout,0L);
-			session.setTimeout(to);
+			session->setTimeout(to);
 
 			std::string method = binding->method;
 			if (method.empty())
@@ -266,7 +309,7 @@ namespace ti
 			}
 
 			// send and stream output
-			std::ostream& out = session.sendRequest(req);
+			std::ostream& out = session->sendRequest(req);
 
 			// write out the data
 			if (!data.empty())
@@ -309,7 +352,7 @@ namespace ti
 // 							list->Append(Value::NewInt(len)); // bytes sent
 // 							list->Append(Value::NewInt(content_len)); // total size
 // 							list->Append(Value::NewInt(remaining)); // remaining
-// 							binding->host->InvokeMethodOnMainThread(sender,args,false);
+// 							binding->host->InvokeMethodOnMainThread(sender,args,true);
 // 						}
 // 						catch(std::exception &e)
 // 						{
@@ -330,8 +373,7 @@ namespace ti
 				binding->filestream->close();
 			}
 
-						Poco::Net::HTTPResponse res;
-			std::istream& rs = session.receiveResponse(res);
+			std::istream& rs = session->receiveResponse(res);
 			int total = res.getContentLength();
 			status = res.getStatus();
 			PRINTD("HTTPClientBinding:: response length received = " << total << " - " << status << " " << res.getReason());
@@ -386,7 +428,7 @@ namespace ti
 							list->Append(Value::NewObject(new Blob(buf,c))); // buffer
 							list->Append(Value::NewInt(c)); // buffer length
 
-							binding->host->InvokeMethodOnMainThread(streamer,args,false);
+							binding->host->InvokeMethodOnMainThread(streamer,args,true);
 						}
 						else
 						{
@@ -396,19 +438,18 @@ namespace ti
 				}
 				catch(std::exception &e)
 				{
-					Logger logger = Logger::GetRootLogger();
-					logger.Error("Caught exception dispatching HTTP callback, Error: %s",e.what());
+					Logger* logger = Logger::Get("Network.HTTPClient");
+					logger->Error("Caught exception dispatching HTTP callback, Error: %s",e.what());
 				}
 				catch(...)
 				{
-					Logger logger = Logger::GetRootLogger();
-					logger.Error("Caught unknown exception dispatching HTTP callback");
+					Logger* logger = Logger::Get("Network.HTTPClient");
+					logger->Error("Caught unknown exception dispatching HTTP callback");
 				}
 				if (rs.eof()) break;
 			}
 			break;
 		}
-		binding->response = NULL;
 		std::string data = ostr.str();
 		if (!data.empty())
 		{
@@ -429,6 +470,7 @@ namespace ti
 
 		binding->Set("connected",Value::NewBool(false));
 		binding->ChangeState(4); // closed
+		binding->response = NULL; // must be done after change state
 		NetworkBinding::RemoveBinding(binding);
 #ifdef OS_OSX
 		[pool release];
@@ -589,7 +631,7 @@ namespace ti
 	}
 	void HTTPClientBinding::GetResponseHeader(const ValueList& args, SharedValue result)
 	{
-		if (this->response)
+		if (this->response!=NULL)
 		{
 			std::string name = args.at(0)->ToString();
 			if (this->response->has(name))
@@ -600,6 +642,10 @@ namespace ti
 			{
 				result->SetNull();
 			}
+		}
+		else
+		{
+			throw ValueException::FromString("no available response");
 		}
 	}
 	void HTTPClientBinding::SetTimeout(const ValueList& args, SharedValue result)
@@ -617,12 +663,12 @@ namespace ti
 				SharedKMethod m = v->ToMethod()->Get("call")->ToMethod();
 				ValueList args;
 				args.push_back(this->self);
-				this->host->InvokeMethodOnMainThread(m,args,false);
+				this->host->InvokeMethodOnMainThread(m,args,true);
 			}
 			catch (std::exception &ex)
 			{
-				Logger logger = Logger::GetRootLogger();
-				logger.Error("Exception calling readyState. Exception: %s",ex.what());
+				Logger* logger = Logger::Get("Network.HTTPClient");
+				logger->Error("Exception calling readyState. Exception: %s",ex.what());
 			}
 		}
 	}
