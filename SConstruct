@@ -98,7 +98,6 @@ SConscript('modules/SConscript')
 SConscript('SConscript.dist')
 SConscript('SConscript.docs')
 
-# Need the dist and build targets to be filled
 SConscript('installation/developer/SConscript')
 
 run = ARGUMENTS.get('run', 0)

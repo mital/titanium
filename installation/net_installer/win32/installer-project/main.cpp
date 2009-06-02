@@ -49,6 +49,7 @@ enum IType
 	MODULE,
 	UPDATE,
 	SDK,
+	MOBILESDK,
 	UNKNOWN
 };
 
@@ -256,7 +257,7 @@ void Install(IType type, string name, string version, string path)
 		destination = FileUtils::Join(
 			componentInstallPath.c_str(), "runtime", OS_NAME, version.c_str(), NULL);
 	}
-	else if (type == SDK)
+	else if (type == SDK || type == MOBILESDK)
 	{
 		destination = componentInstallPath;
 	}
@@ -319,6 +320,11 @@ void ProcessURL(string url, Progress *p, HINTERNET hINet)
 		type = SDK;
 		path = "sdk-";
 	}
+	else if (string(MOBILESDK_UUID) == uuid)
+	{
+		type = MOBILESDK;
+		path = "mobilesdk-";
+	}
 	else
 	{
 		return;
@@ -359,6 +365,11 @@ void ProcessFile(string fullPath, Progress *p)
 	{
 		type = SDK;
 		name = "sdk";
+	}
+	else if (partOne == "mobilesdk")
+	{
+		type = MOBILESDK;
+		name = "mobilesdk";
 	}
 	else if (partOne == "module")
 	{
@@ -546,6 +557,7 @@ int WINAPI WinMain(
 	char** argv = __argv;
 	vector<string> jobs;
 	string jobsFile;
+	bool quiet = false;
 
 	for (int i = 1; i < argc; i++)
 	{
@@ -565,6 +577,10 @@ int WINAPI WinMain(
 			i++;
 			updateFile = argv[i];
 			jobs.push_back("update");
+		}
+		else if (arg == "-quiet")
+		{
+			quiet = true;
 		}
 		else
 		{
@@ -622,35 +638,42 @@ int WINAPI WinMain(
 	LoadLibrary(TEXT("Riched20.dll"));
 	CoInitialize(NULL);
 
-	HWND introDialog = CreateDialog(
-		hInstance,
-		MAKEINTRESOURCE(IDD_INTRODIALOG),
-		0,
-		DialogProc);
-
-	if (!introDialog)
+	if (!quiet)
 	{
-		int i = GetLastError();
-		ShowError("The installer could not create the introductory dialog.");
-		return __LINE__;
+		HWND introDialog = CreateDialog(
+			hInstance,
+			MAKEINTRESOURCE(IDD_INTRODIALOG),
+			0,
+			DialogProc);
+
+		if (!introDialog)
+		{
+			int i = GetLastError();
+			ShowError("The installer could not create the introductory dialog.");
+			return __LINE__;
+		}
+
+		MSG msg;
+		int status;
+		while ((status = GetMessage(&msg, 0, 0, 0)) != 0)
+		{
+			if (status == -1)
+			{
+				char buf[2000];
+				sprintf(buf, "Error: %i", GetLastError());
+				ShowError(buf);
+				return -1;
+			}
+			if (!IsDialogMessage(introDialog, &msg))
+			{
+				TranslateMessage(&msg);
+				DispatchMessage(&msg);
+			}
+		}
 	}
-
-	MSG msg;
-	int status;
-	while ((status = GetMessage(&msg, 0, 0, 0)) != 0)
+	else
 	{
-		if (status == -1)
-		{
-			char buf[2000];
-			sprintf(buf, "Error: %i", GetLastError());
-			ShowError(buf);
-			return -1;
-		}
-		if (!IsDialogMessage(introDialog, &msg))
-		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
+		doInstall = true;
 	}
 
 	if (doInstall)

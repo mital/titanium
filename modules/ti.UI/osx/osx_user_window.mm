@@ -23,8 +23,8 @@ namespace ti
 		}
 	}
 
-	OSXUserWindow::OSXUserWindow(SharedUIBinding binding, WindowConfig* config, SharedUserWindow& parent) :
-		UserWindow(binding, config, parent),
+	OSXUserWindow::OSXUserWindow(WindowConfig* config, SharedUserWindow& parent) :
+		UserWindow(config, parent),
 		window(nil),
 		opened(false),
 		closed(false),
@@ -380,7 +380,7 @@ namespace ti
 				[window setMinSize: newFrame.size];
 				[window setMaxSize: newFrame.size];
 			}
-			[window setFrame:newFrame display:config->IsVisible() animate:YES];
+			[window setFrame:newFrame display:config->IsVisible() animate:NO];
 		}
 	}
 

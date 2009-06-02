@@ -107,6 +107,7 @@ describe("Ti.Database sync database tests",{
 		value_of(rs.fieldName(0)).should_be('name');
 		value_of(rs.fieldByName('name')).should_be('a');
 		value_of(rs.fieldCount()).should_be(1);
+		value_of(this.db.lastInsertRowId).should_be(1);
 		rs.close();
 
 		// drop table
@@ -224,6 +225,34 @@ describe("Ti.Database sync database tests",{
 		value_of(rs.field(0)).should_be('e');
 		value_of(rs.field(1)).should_be(891);
 		rs.close();
+
+		// test sending NULL into query
+		rs = this.db.execute("select * from TEST where name = :name",[null]);
+		value_of(rs).should_be_object();
+		value_of(this.db.rowsAffected).should_be(0);
+		rs.close();
+
+		// test sending UNDEFINED into query
+		rs = this.db.execute("select * from TEST where name = :name",[undefined]);
+		value_of(rs).should_be_object();
+		value_of(this.db.rowsAffected).should_be(0);
+		rs.close();
+
+		// test insert null
+		this.db.execute("insert into TEST values (?,?)",null,555);
+
+		// test sending NULL into query with null row value
+		rs = this.db.execute("select * from TEST where name = :name",[null]);
+		value_of(rs).should_be_object();
+		value_of(this.db.rowsAffected).should_be(1);
+		rs.close();
+
+		// test sending UNDEFINED into query with null row value
+		rs = this.db.execute("select * from TEST where name = :name",[undefined]);
+		value_of(rs).should_be_object();
+		value_of(this.db.rowsAffected).should_be(1);
+		rs.close();
+
 		
 		// delete the DB
 		this.db.execute("delete from TEST");

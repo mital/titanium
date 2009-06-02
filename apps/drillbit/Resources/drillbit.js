@@ -10,7 +10,10 @@ var total_files = 0;
 var running_assertions = 0;
 var running_completed = 0;
 var auto_run = false;
+var auto_close = false;
+var debug_tests = false;
 var test_failures = false;
+var specific_tests = null;
 
 function update_status(msg,hide)
 {
@@ -103,6 +106,24 @@ function toggle_test_includes()
 	});
 }
 
+function select_tests(tests)
+{
+	// clear the table
+	$.each($('#table .checkbox'),function()
+	{
+		if ($(this).is('.checked')) {
+			$(this).removeClass('checked');
+		}
+	});
+	
+	//select tests
+	for (var t=0; t < tests.length; t++) {
+		var test = tests[t];
+		
+		$('#test_'+test+' .checkbox').addClass('checked');
+	}
+}
+
 var tests = {};
 window.onload = function()
 {
@@ -115,6 +136,11 @@ window.onload = function()
 	var dir_list = test_dir.getDirectoryListing();
 	
 	results_dir.createDirectory();
+	
+	var f = Titanium.Filesystem.getFile(results_dir, "results.html");
+	if (f.exists()) {
+		f.deleteFile();
+	}
 	
 	for (var c=0;c<dir_list.length;c++)
 	{
@@ -147,7 +173,8 @@ window.onload = function()
 		}
 		catch(EX)
 		{
-			alert("error loading: "+f+". Exception: "+EX);
+			alert("error loading: "+f+". Exception: "+EX+" (line: "+EX.line+")");
+			Titanium.API.debug("error loading: "+f+". Exception: "+EX+" (line: "+EX.line+")");
 		}
 	}
 
@@ -191,7 +218,7 @@ window.onload = function()
 			$(this).addClass('checked');
 		}
 	});
-	
+		
 	// get the runtime dir
 	var runtime_dir = TFS.getFile(Titanium.Process.getEnv('KR_RUNTIME'));
 	var modules_dir = TFS.getFile(TFS.getApplicationDirectory(),'modules');
@@ -433,6 +460,11 @@ window.onload = function()
 		args.push('--logpath="'+log_path+'"')
 		args.push('--bundled-component-override="'+app_dir+'"')
 		args.push('--no-console-logging');
+		args.push('--debug');
+		if (debug_tests) {
+			args.push('--attach-debugger');
+		}
+		
 		args.push('--results-dir="' + results_dir + '"');
 		var process = Titanium.Process.launch(app.executable.nativePath(),args);
 		process.onread = function(data)
@@ -455,6 +487,7 @@ window.onload = function()
 		var size = 0;
 		var timer = null;
 		var start_time = new Date().getTime();
+		var original_time = start_time;
 		
 		// start a stuck process monitor in which we check the 
 		// size of the profile file -- if we're not doing anything
@@ -463,9 +496,10 @@ window.onload = function()
 		{
 			var t = new Date().getTime();
 			var newsize = profile_path.size();
-			if (newsize == size)
+			var timed_out = (t-original_time) > 40000;
+			if (newsize == size || timed_out)
 			{
-				if (t-start_time>=entry.timeout)
+				if (timed_out || t-start_time>=entry.timeout)
 				{
 					clearInterval(timer);
 					current_test.failed = true;
@@ -514,7 +548,6 @@ window.onload = function()
 		};
 	}
 	
-
 	function run_next_test()
 	{
 		if (executing_tests==null || executing_tests.length == 0)
@@ -526,7 +559,7 @@ window.onload = function()
 			update_status('Testing complete ... took ' + test_duration + ' seconds',true);
 			var f = TFS.getFile(results_dir,'drillbit.json');
 			f.write("{\"success\":" + String(!test_failures) + "}");
-			if (auto_run)
+			if (auto_close)
 			{
 				Titanium.App.exit(test_failures ? 1 : 0);
 			}
@@ -567,11 +600,26 @@ window.onload = function()
 	// if you pass in --autorun, just go ahead and start
 	for (var c=0;c<Titanium.App.arguments.length;c++)
 	{
-		if (Titanium.App.arguments[c] == '--autorun')
+		var arg = Titanium.App.arguments[c];
+		
+		if (arg == '--autorun')
 		{
 			auto_run = true;
 			run_button.click();
-			break;
+			//break;
+		}
+		else if (arg == '--autoclose')
+		{
+			auto_close = true;
+		}
+		else if (arg == '--debug-tests')
+		{
+			debug_tests = true;
+		}
+		else if (arg.indexOf('--tests=')==0)
+		{
+			specific_tests = arg.substring(8).split(',');
+			select_tests(specific_tests);
 		}
 	}
 };

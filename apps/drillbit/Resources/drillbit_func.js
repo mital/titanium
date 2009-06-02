@@ -267,6 +267,7 @@ TitaniumTest =
 			lineNumber: lineNumber
 		});
 		Titanium.App.stdout("DRILLBIT_PASS: "+name);
+		Titanium.API.debug("DRILLBIT_PASS: "+name);
 		TitaniumTest.run_next_test();
 	},
 	
@@ -280,6 +281,7 @@ TitaniumTest =
 			message:e.message || String(e)
 		});
 		Titanium.App.stdout("DRILLBIT_FAIL: "+name+" --- "+e);
+		Titanium.API.debug("DRILLBIT_FAIL: "+name+" --- "+e);
 		TitaniumTest.run_next_test();
 	},
 	
@@ -303,7 +305,10 @@ TitaniumTest =
 
 			// Only write the failure report HTML if we have failed -- it's very expensive
 			var f = Titanium.Filesystem.getFile(rd.nativePath(), TitaniumTest.NAME+'.html');
-			this.write_results_to_html(f);
+			this.write_results_to_single_html(f);
+			
+			var f = Titanium.Filesystem.getFile(rd.nativePath(), "results.html");
+			this.write_results_to_results_html(f);
 		}
 		catch(e)
 		{
@@ -323,11 +328,28 @@ TitaniumTest =
 		f.write(JSON.stringify(data));
 	},
 
-	write_results_to_html: function(f)
+	write_results_to_single_html: function(f)
 	{
 		var text = [];
 		text.push("<html><body>");
 		text.push("<style>.failed{background-color:yellow;} body {background-color: white;}</style>");
+		
+		this.get_results_html(text);
+		
+		text.push("</body></html>");
+		f.write(text.join("\n"));
+	},
+	
+	write_results_to_results_html: function(f)
+	{
+		var text = [];
+		this.get_results_html(text);
+		
+		f.write(text.join("\n"), true);
+	},
+	
+	get_results_html: function(text)
+	{
 		text.push("<table>");
 
 		text.push("<tr>");
@@ -378,9 +400,6 @@ TitaniumTest =
 			}
 			text.push("</table>");
 		}
-
-		text.push("</body></html>");
-		f.write(text.join("\n"));
 	},
 	
 	on_complete: function()
@@ -449,7 +468,14 @@ TitaniumTest.Scope.prototype.passed = function()
 	if (!this._completed)
 	{
 		this._completed = true;
-		TitaniumTest.testPassed(this._testName,TitaniumTest.currentSubject.lineNumber);
+		if (TitaniumTest.currentSubject)
+		{
+			TitaniumTest.testPassed(this._testName,TitaniumTest.currentSubject.lineNumber);
+		}
+		else
+		{
+			TitaniumTest.testPassed(this._testName,-1);
+		}
 		TitaniumTest.currentSubject = null;
 	}
 }
@@ -469,7 +495,7 @@ TitaniumTest.Subject.prototype.should_be = function(expected,lineNumber)
 	this.lineNumber = lineNumber;
 	if (this.target != expected)
 	{
-		throw new TitaniumTest.Error('should be: '+expected+', was: '+this.target,lineNumber);
+		throw new TitaniumTest.Error('should be: "'+expected+'", was: "'+this.target+'"',lineNumber);
 	}
 };
 

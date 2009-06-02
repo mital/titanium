@@ -75,6 +75,17 @@ describe("Ti.Filesystem File tests",
 		value_of(f.modificationTimestamp()).should_not_be_null();
 		value_of(f.nativePath()).should_not_be_null();
 		value_of(f.size()).should_not_be_null();	
+		
+		// this should throw exception
+		try
+		{
+			f.write(null);
+			failed('should have failed on null write');
+		}
+		catch(e)
+		{
+			//good
+		}
 	},
 	
 	directory_props:function()
@@ -88,7 +99,11 @@ describe("Ti.Filesystem File tests",
 		value_of(f.isHidden()).should_be_false();
 		value_of(f.isSymbolicLink()).should_be_false();
 		// directories are by default executable
-		value_of(f.isExecutable()).should_be_true();
+		// -- in win32 this impl only checks to see if this is an .exe (so skip)
+		if (Titanium.platform != "win32") {
+			value_of(f.isExecutable()).should_be_true();
+		}
+
 		value_of(f.isReadonly()).should_be_false();
 		value_of(f.isWriteable()).should_be_true();
 		value_of(f.createTimestamp()).should_not_be_null();
@@ -188,7 +203,13 @@ describe("Ti.Filesystem File tests",
 		value_of(f).should_not_be_null();
 		value_of(f.exists()).should_be_true();
 		
-		var shortcutFile = Titanium.Filesystem.getFile(this.base, "my-shortcut");
+		// use .lnk in win32
+		var shortcutFilename = "my-shortcut";
+		if (Titanium.platform == "win32") {
+			shortcutFilename += ".lnk";
+		}
+		
+		var shortcutFile = Titanium.Filesystem.getFile(this.base, shortcutFilename);
 		var r = f.createShortcut(shortcutFile);
 		value_of(r).should_be_true();
 		value_of(shortcutFile.exists()).should_be_true();
@@ -204,11 +225,14 @@ describe("Ti.Filesystem File tests",
 		value_of(f.isReadonly()).should_be_false();
 		value_of(f.isWriteable()).should_be_true();
 		
-		f.setExecutable(true);
-		value_of(f.isExecutable()).should_be_true();
+		if (Titanium.platform != "win32") {
+			// POCO doesn't implement executable for win32
+			f.setExecutable(true);
+			value_of(f.isExecutable()).should_be_true();
 
-		f.setExecutable(false);
-		value_of(f.isExecutable()).should_be_false();
+			f.setExecutable(false);
+			value_of(f.isExecutable()).should_be_false();
+		}
 
 		f.setReadonly(false);
 		value_of(f.isReadonly()).should_be_false();
@@ -221,6 +245,35 @@ describe("Ti.Filesystem File tests",
 
 		f.setWriteable(true);
 		value_of(f.isWriteable()).should_be_true();
+	},
+	
+	test_file_readLine_isEmpty:function()
+	{
+		this.createFile(this.base,"readline.txt","\nfoo\n\n");
+		var f = Titanium.Filesystem.getFile(this.base, "readline.txt");
+		value_of(f).should_not_be_null();
+		var c=0;
+		while(c<5)
+		{
+			var line = f.readLine(c==0 ? true : false);
+			switch(c)
+			{
+				case 0:
+				case 2:
+					value_of(line).should_be('');
+					break;
+				case 1:
+					value_of(line).should_be('foo');
+					break;
+				case 3:
+					value_of(line).should_be_null();
+					break;
+			}
+			c++;
+			if (line==null) break;
+		}
+		value_of(c).should_be(4);
 	}
+	
 });
 

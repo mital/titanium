@@ -82,8 +82,9 @@ namespace ti {
 
 		void Exiting(int exitcode);
 		void Start();
-		void LoadUIJavascript(JSContextRef context);
 
+		SharedUIBinding GetUIBinding() { return uiBinding; }
+		
 		static void SetMenu(SharedPtr<MenuItem> menu);
 		static SharedPtr<MenuItem> GetMenu();
 		static void SetContextMenu(SharedPtr<MenuItem> menu);
@@ -102,7 +103,9 @@ namespace ti {
 		static SharedString icon_path;
 		static std::vector<SharedPtr<TrayItem> > tray_items;
 		static UIModule* instance_;
-
+		
+		SharedUIBinding uiBinding;
+		
 		DISALLOW_EVIL_CONSTRUCTORS(UIModule);
 
 	};

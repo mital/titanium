@@ -5,10 +5,12 @@
  */
 #import "Controller.h"
 #import <string>
+#import <sys/mount.h>
 
 #define RUNTIME_UUID_FRAGMENT @"uuid="RUNTIME_UUID
 #define MODULE_UUID_FRAGMENT @"uuid="MODULE_UUID
 #define SDK_UUID_FRAGMENT @"uuid="SDK_UUID
+#define MOBILESDK_UUID_FRAGMENT @"uuid="MOBILESDK_UUID
 
 @implementation Job
 static int totalDownloads = 0;
@@ -71,7 +73,7 @@ static int totalJobs = 0;
 
 -(BOOL)needsDownload
 {
-	return path == nil;
+	return path == nil || isUpdate;
 }
 
 -(BOOL)isUpdate;
@@ -116,7 +118,7 @@ static int totalJobs = 0;
 {
 	NSLog(@"Bailing with error: %@", errorString);
 	NSRunCriticalAlertPanel(nil, errorString, @"Cancel", nil, nil);
-	[NSApp terminate:nil];
+	exit(1);
 }
 
 -(void)createDirectory:(NSString*)path;
@@ -151,7 +153,13 @@ static int totalJobs = 0;
 
 	NSString* path = [job path];
 	NSURL* url = [job url];
-	if (url == nil)
+	if ([job isUpdate])
+	{
+		type = KrollUtils::APP_UPDATE;
+		name = @"update";
+		version = [NSString stringWithUTF8String:app->version.c_str()];
+	}
+	else if (url == nil)
 	{
 		// The file is either in the format of module-modname-version.zip for a
 		// module or runtime-version.zip for the runtime, so we need to split
@@ -181,9 +189,16 @@ static int totalJobs = 0;
 			name = [parts objectAtIndex:0];
 			version = [parts objectAtIndex:1];
 		}
+		else if ([typeString isEqualToString:@"mobilesdk"])
+		{
+			type = KrollUtils::MOBILESDK;;
+			name = [parts objectAtIndex:0];
+			version = [parts objectAtIndex:1];
+		}
 		else
 		{
 			// Unknown file!
+			NSLog(@"Unknown file type for url: %@",url);
 			return;
 		}
 	}
@@ -206,6 +221,10 @@ static int totalJobs = 0;
 			{
 				type = KrollUtils::SDK;
 			}
+			else if ([thisPart isEqualToString:MOBILESDK_UUID_FRAGMENT])
+			{
+				type = KrollUtils::MOBILESDK;
+			}
 			else if ([thisPart hasPrefix:@"name="])
 			{
 				name = [thisPart substringFromIndex:5];
@@ -226,21 +245,26 @@ static int totalJobs = 0;
 	{
 		destDir = [NSString stringWithFormat:@"%@/runtime/osx/%@", installDirectory, version];
 	}
-	else if (type == KrollUtils::SDK)
+	else if (type == KrollUtils::SDK || type == KrollUtils::MOBILESDK)
 	{
 		destDir = installDirectory;
+	}
+	else if (type == KrollUtils::APP_UPDATE)
+	{
+		destDir = [NSString stringWithUTF8String:app->path.c_str()];
 	}
 	else
 	{
 		// Unknown file!
+		NSLog(@"Unknown file type for url: %@",url);
 		return;
 	}
 
 #ifdef DEBUG
 	NSLog(@"name=%@,version=%@,module=%d", name, version, type);
+	NSLog(@"Installing %@ into %@", path, destDir);
 #endif
 
-	NSLog(@"Installing %@ into %@", path, destDir);
 	[self createDirectory:destDir];
 	std::string cmdline = "/usr/bin/ditto --noqtn -x -k --rsrc ";
 	cmdline+="\"";
@@ -248,11 +272,21 @@ static int totalJobs = 0;
 	cmdline+="\" \"";
 	cmdline+=[destDir UTF8String];
 	cmdline+="\"";
-	system(cmdline.c_str());
+	
+#ifdef DEBUG
+	NSLog(@"Executing: %s", cmdline.c_str());
+#endif
+
+	int ec = system(cmdline.c_str());
 
 #ifdef DEBUG
-	NSLog(@"After unzip %@ to %@", path, destDir);
+	NSLog(@"After unzip %@ to %@, exitcode:%d", path, destDir,ec);
 #endif
+
+	if (ec!=0)
+	{
+		[self bailWithMessage:@"Download file extraction failed. Possibly it was corrupted or couldn't be properly downloaded."];
+	}
 }
 
 -(void)downloadAndInstall:(Controller*)controller 
@@ -295,8 +329,19 @@ static int totalJobs = 0;
 	[NSApp terminate:self];
 }
 
+- (BOOL)isVolumeReadOnly
+{  
+  struct statfs statfs_info;
+  statfs([[[NSBundle mainBundle] bundlePath] fileSystemRepresentation], &statfs_info);
+  return (statfs_info.f_flags & MNT_RDONLY);
+}
+
 -(void)finishInstallation
 {
+	if ([self isVolumeReadOnly])
+	{
+		return;
+	}
 	// Write the .installed file
 	NSFileManager *fm = [NSFileManager defaultManager];
 	NSString* ifile = [NSString stringWithUTF8String:app->path.c_str()];
@@ -488,6 +533,7 @@ static int totalJobs = 0;
 { 
 	[NSApp setDelegate:self];
 
+	quiet = NO;;
 	updateFile = nil;
 	NSString *appPath = nil;
 	jobs = [[NSMutableArray alloc] init];
@@ -508,9 +554,13 @@ static int totalJobs = 0;
 			[updateFile retain];
 			i++;
 		}
+		else if ([arg isEqual:@"-quiet"])
+		{
+			quiet = YES;
+		}
 		else
 		{
-			[jobs addObject:[[Job alloc] init: arg]];
+			[jobs addObject:[[Job alloc] init:arg]];
 		}
 	}
 
@@ -525,7 +575,10 @@ static int totalJobs = 0;
 	}
 	else
 	{
+		quiet = YES; // An update will happen silently
 		app = Application::NewApplication([updateFile UTF8String], [appPath UTF8String]);
+		NSString* updateURL = [NSString stringWithUTF8String:app->GetUpdateURL().c_str()];
+		[jobs addObject:[[Job alloc] initUpdate:updateURL]];
 	}
 	NSString *appName, *appVersion, *appPublisher, *appURL, *appImage;
 	appName = appVersion = appPublisher = appURL = @"Unknown";
@@ -559,6 +612,57 @@ static int totalJobs = 0;
 		appImage = [NSString stringWithUTF8String:app->image.c_str()];
 	}
 
+	std::string tempDir = FileUtils::GetTempDirectory();
+	temporaryDirectory = [NSString stringWithUTF8String:tempDir.c_str()];
+	[self createDirectory: temporaryDirectory];
+	[temporaryDirectory retain];
+
+	// Check to see if we can write to the system install location -- if so install there
+	std::string systemRuntimeHome = FileUtils::GetSystemRuntimeHomeDirectory();
+	std::string userRuntimeHome = FileUtils::GetUserRuntimeHomeDirectory();
+
+	installDirectory = [NSString stringWithUTF8String:systemRuntimeHome.c_str()];
+	if ((!FileUtils::IsDirectory(systemRuntimeHome) && 
+			[[NSFileManager defaultManager] isWritableFileAtPath:[installDirectory stringByDeletingLastPathComponent]]) ||
+		[[NSFileManager defaultManager] isWritableFileAtPath:installDirectory])
+	{
+		installDirectory = [NSString stringWithUTF8String:systemRuntimeHome.c_str()];
+	}
+	else
+	{
+		// Cannot write to system-wide install location -- install to user directory
+		installDirectory = [NSString stringWithUTF8String:userRuntimeHome.c_str()];
+	}
+	[installDirectory retain];
+	
+
+	if (quiet)
+	{
+		[self continueIntro:self];
+		return;
+	}
+	else
+	{
+		[self showIntroDialog:appName
+			path:appPath
+			version:appVersion
+			publisher:appPublisher
+			url:appURL
+			image:appImage];
+	}
+
+	[progressWindow makeKeyAndOrderFront:progressWindow];
+	[NSApp activateIgnoringOtherApps:YES];
+	
+}
+
+-(void)showIntroDialog: (NSString*)appName
+	path:(NSString*)appPath
+	version:(NSString*)appVersion
+	publisher:(NSString*)appPublisher
+	url:(NSString*)appURL
+	image:(NSString*)appImage
+{
 	[self createInstallerMenu:appName];
 	[progressAppName setStringValue:appName];
 	[introAppName setStringValue:appName];
@@ -608,48 +712,27 @@ static int totalJobs = 0;
 		[introWindow setShowsResizeIndicator:NO];
 		[introWindow setFrame:frame display:YES];
 	}
-
-	std::string tempDir = FileUtils::GetTempDirectory();
-	temporaryDirectory = [NSString stringWithUTF8String:tempDir.c_str()];
-	[self createDirectory: temporaryDirectory];
-	[temporaryDirectory retain];
-
-	// Check to see if we can write to the system install location -- if so install there
-	std::string systemRuntimeHome = FileUtils::GetSystemRuntimeHomeDirectory();
-	std::string userRuntimeHome = FileUtils::GetUserRuntimeHomeDirectory();
-
-	installDirectory = [NSString stringWithUTF8String:systemRuntimeHome.c_str()];
-	if ((!FileUtils::IsDirectory(systemRuntimeHome) && 
-			[[NSFileManager defaultManager] isWritableFileAtPath:[installDirectory stringByDeletingLastPathComponent]]) ||
-		[[NSFileManager defaultManager] isWritableFileAtPath:installDirectory])
-	{
-		installDirectory = [NSString stringWithUTF8String:systemRuntimeHome.c_str()];
-	}
-	else
-	{
-		// Cannot write to system-wide install location -- install to user directory
-		installDirectory = [NSString stringWithUTF8String:userRuntimeHome.c_str()];
-	}
-	[installDirectory retain];
-	
-
 	[NSApp arrangeInFront:introWindow];
-	[progressWindow makeKeyAndOrderFront:progressWindow];
-	[NSApp activateIgnoringOtherApps:YES];
 }
+
 - (BOOL)canBecomeKeyWindow
 {
 	return YES;
 }
+
 - (BOOL)canBecomeMainWindow
 {
 	return YES;
 }
+
 -(void)applicationDidFinishLaunching:(NSNotification *) notif
 {
-	[introWindow center];
-	[progressWindow orderOut:self];
-	[introWindow makeKeyAndOrderFront:self];
+	if (updateFile == nil && quiet == NO)
+	{
+		[introWindow center];
+		[progressWindow orderOut:self];
+		[introWindow makeKeyAndOrderFront:self];
+	}
 }
 
 -(IBAction)cancelProgress: (id)sender
@@ -659,6 +742,7 @@ static int totalJobs = 0;
 	[progressText setStringValue:@"Cancelling..."];
 	[NSApp terminate:self];
 }
+
 -(IBAction)cancelIntro:(id)sender
 {
 	[NSApp terminate:self];
@@ -666,18 +750,21 @@ static int totalJobs = 0;
 
 -(IBAction)continueIntro:(id)sender;
 {
-	[introWindow orderOut:self];
-	[progressText setStringValue:@"Connecting to download site..."];
-	[progressBar setUsesThreadedAnimation:NO];
-	[progressBar setIndeterminate:NO];
-	[progressBar setMinValue:0.0];
-	[progressBar setMaxValue:100.0];
-	[progressBar setDoubleValue:0.0];
-
-	[progressWindow center];
-	if ([jobs count] > 0)
+	if (quiet == NO)
 	{
-		[progressWindow orderFront:self];
+		[introWindow orderOut:self];
+		[progressText setStringValue:@"Connecting to download site..."];
+		[progressBar setUsesThreadedAnimation:NO];
+		[progressBar setIndeterminate:NO];
+		[progressBar setMinValue:0.0];
+		[progressBar setMaxValue:100.0];
+		[progressBar setDoubleValue:0.0];
+
+		[progressWindow center];
+		if ([jobs count] > 0)
+		{
+			[progressWindow orderFront:self];
+		}
 	}
 	[NSThread detachNewThreadSelector:@selector(downloadAndInstall:) toTarget:self withObject:self];
 }

@@ -20,7 +20,7 @@ namespace ti
 		this->SetMethod("getID", &AppBinding::GetID);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getName,since=0.2) Returns the application name
-	     * @tiresult(for=App.getName,type=string) returns the name
+		 * @tiresult(for=App.getName,type=string) returns the name
 		 */
 		this->SetMethod("getName", &AppBinding::GetName);
 		/**
@@ -30,34 +30,36 @@ namespace ti
 		this->SetMethod("getVersion", &AppBinding::GetVersion);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getPublisher,since=0.4) Returns the application publisher
-	     * @tiresult(for=App.getPublisher,type=string) returns the publisher
+		 * @tiresult(for=App.getPublisher,type=string) returns the publisher
 		 */
 		this->SetMethod("getPublisher", &AppBinding::GetPublisher);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getURL,since=0.4) Returns the application url
-	     * @tiresult(for=App.getURL,type=string) returns the url for the app
+		 * @tiresult(for=App.getURL,type=string) returns the url for the app
 		 */
 		this->SetMethod("getURL", &AppBinding::GetURL);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getDescription,since=0.4) Returns the application description
-	     * @tiresult(for=App.getDescription,type=string) returns the description for the app
+		 * @tiresult(for=App.getDescription,type=string) returns the description for the app
 		 */
 		this->SetMethod("getDescription", &AppBinding::GetDescription);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getCopyright,since=0.4) Returns the application copyright information
-	     * @tiresult(for=App.getCopyright,type=string) returns the copyright for the app
+		 * @tiresult(for=App.getCopyright,type=string) returns the copyright for the app
 		 */
 		this->SetMethod("getCopyright", &AppBinding::GetCopyright);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getGUID,since=0.2) Returns the application globally unique id
-	     * @tiresult(for=App.getGUID,type=string) returns the unique id
+		 * @tiresult(for=App.getGUID,type=string) returns the unique id
 		 */
 		this->SetMethod("getGUID", &AppBinding::GetGUID);
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.getStreamURL,since=0.4) Returns the application stream URL for the update channel
-	     * @tiresult(for=App.getStreamURL,type=string) returns the stream URL
+		 * @tiresult(for=App.getStreamURL,type=string) returns the stream URL
 		 */
 		this->SetMethod("getStreamURL", &AppBinding::GetStreamURL);
+
+		
 		/**
 		 * @tiapi(method=True,immutable=True,name=App.appURLToPath,since=0.2) Returns the full path equivalent of an app: protocol path
 		 * @tiresult(for=App.appURLToPath,type=string) returns the path
@@ -67,12 +69,13 @@ namespace ti
 		/**
 		 * @tiapi(property=True,immutable=True,type=string,name=App.path,since=0.2) Returns the full path to the application
 		 */
-#ifdef OS_OSX
-		NSString *path = [[NSBundle mainBundle] bundlePath];
-		this->Set("path",Value::NewString([path UTF8String]));
-#else
 		this->Set("path",Value::NewString(host->GetCommandLineArg(0)));
-#endif
+
+		/**
+		 * @tiapi(property=True,immutable=True,type=string,name=App.home,since=0.4) Returns the full path to the application home directory
+		 */
+		this->Set("home",Value::NewString(host->GetApplicationHomePath()));
+
 
 		/**
 		 * @tiapi(property=True,immutable=True,type=string,name=App.version,since=0.2) The Titanium product version
@@ -127,6 +130,11 @@ namespace ti
 		 */
 		this->SetMethod("getSystemProperties", &AppBinding::GetSystemProperties);
 
+		/**
+		 * @tiapi(method=True,name=App.getIcon,since=0.4) Returns the application icon
+		 * @tiresult(for=App.getIcon,type=string) returns the icon path
+		 */
+		this->SetMethod("getIcon", &AppBinding::GetIcon);
 	}
 
 	AppBinding::~AppBinding()
@@ -262,5 +270,18 @@ namespace ti
 		}
 		result->SetString(url);
 	}
-
+	
+	void AppBinding::GetIcon(const ValueList& args, SharedValue result)
+	{
+		const SharedApplication app = this->host->GetApplication();
+		if (app->image.empty())
+		{
+			result->SetNull();
+		}
+		else
+		{
+			std::string iconPath = app->image;
+			result->SetString(iconPath);
+		}
+	}
 }

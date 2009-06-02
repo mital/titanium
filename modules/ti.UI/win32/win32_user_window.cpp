@@ -75,8 +75,7 @@ void Win32UserWindow::RegisterWindowClass(HINSTANCE hInstance)
 		ATOM result = RegisterClassEx(&wcex);
 		if (result == NULL)
 		{
-			std::cout << "Error Registering Window Class: " << GetLastError()
-					<< std::endl;
+			Logger::Get("UI.Win32UserWindow")->Error("Error Registering Window Class: %d", GetLastError());
 		}
 
 		class_initialized = true;
@@ -116,6 +115,7 @@ Win32UserWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			return DefWindowProc(hWnd, message, wParam, lParam);
 		case WM_CLOSE:
 			window->Close();
+			PRINTD("FireEvent: CLOSED");
 			window->FireEvent(CLOSED);
 			return DefWindowProc(hWnd, message, wParam, lParam);
 		case WM_GETMINMAXINFO:
@@ -130,6 +130,19 @@ Win32UserWindow::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				int max_height = (int) window->GetMaxHeight();
 				int min_height = (int) window->GetMinHeight();
 
+				// offset the size of the window chrome
+				if (window->IsUsingChrome()) {
+					if (max_width > -1)
+						max_width += window->chromeWidth;
+					if (min_width > -1)
+						min_width += window->chromeWidth;
+					
+					if (max_height > -1)
+						max_height += window->chromeHeight;
+					if (min_height > -1)
+						min_height += window->chromeHeight;
+				}
+				
 				if (max_width == -1)
 				{
 					mmi->ptMaxTrackSize.x = INT_MAX; // Uncomfortably large
@@ -376,8 +389,8 @@ void Win32UserWindow::InitWebKit()
 	//web_view->setShouldCloseWithWindow(TRUE);
 }
 
-Win32UserWindow::Win32UserWindow(SharedUIBinding binding, WindowConfig* config, SharedUserWindow& parent) :
-	UserWindow(binding, config, parent),
+Win32UserWindow::Win32UserWindow(WindowConfig* config, SharedUserWindow& parent) :
+	UserWindow(config, parent),
 	menuBarHandle(NULL),
 	menuInUse(NULL),
 	menu(NULL),
@@ -531,8 +544,8 @@ void Win32UserWindow::Unfocus()
 
 void Win32UserWindow::Open()
 {
-	std::cout << "Opening window_handle=" << (int) window_handle
-			<< ", view_window_handle=" << (int) view_window_handle << std::endl;
+	PRINTD("Opening window_handle=" << (int) window_handle
+			<< ", view_window_handle=" << (int) view_window_handle);
 
 	UpdateWindow(window_handle);
 	UpdateWindow(view_window_handle);
@@ -546,7 +559,15 @@ void Win32UserWindow::Open()
 		ShowWindow(window_handle, SW_SHOW);
 		ShowWindow(view_window_handle, SW_SHOW);
 	}
-
+	
+	this->SetupBounds();
+	if (this->config->IsMaximized()) {
+		this->Maximize();
+	}
+	else if (this->config->IsMinimized()) {
+		this->Minimize();
+	}
+	
 	FireEvent(OPENED);
 }
 
@@ -554,6 +575,7 @@ void Win32UserWindow::Close()
 {
 	DestroyWindow(window_handle);
 	UserWindow::Close();
+	FireEvent(CLOSED);
 }
 
 double Win32UserWindow::GetX()
@@ -603,6 +625,7 @@ double Win32UserWindow::GetMaxWidth()
 
 void Win32UserWindow::SetMaxWidth(double width)
 {
+	this->SetupSize();
 }
 
 double Win32UserWindow::GetMinWidth()
@@ -612,6 +635,7 @@ double Win32UserWindow::GetMinWidth()
 
 void Win32UserWindow::SetMinWidth(double width)
 {
+	this->SetupSize();
 }
 
 double Win32UserWindow::GetMaxHeight()
@@ -621,6 +645,7 @@ double Win32UserWindow::GetMaxHeight()
 
 void Win32UserWindow::SetMaxHeight(double height)
 {
+	this->SetupSize();
 }
 
 double Win32UserWindow::GetMinHeight()
@@ -630,31 +655,41 @@ double Win32UserWindow::GetMinHeight()
 
 void Win32UserWindow::SetMinHeight(double height)
 {
+	this->SetupSize();
 }
 
 Bounds Win32UserWindow::GetBounds()
 {
 	Bounds bounds;
 
-	RECT rect;
-	GetWindowRect(window_handle, &rect);
+	RECT rect, windowRect;
+	GetWindowRect(window_handle, &windowRect);
+	GetClientRect(window_handle, &rect);
 
-	bounds.x = rect.left;
-	bounds.y = rect.top;
+	bounds.x = windowRect.left;
+	bounds.y = windowRect.top;
 	bounds.width = rect.right - rect.left;
 	bounds.height = rect.bottom - rect.top;
-
+	
 	return bounds;
+}
+
+void Win32UserWindow::SetupBounds()
+{
+	Bounds bounds;
+	bounds.x = this->config->GetX();
+	bounds.y = this->config->GetY();
+	bounds.width = this->config->GetWidth();
+	bounds.height = this->config->GetHeight();
+	this->SetBounds(bounds);
 }
 
 void Win32UserWindow::SetBounds(Bounds bounds)
 {
 	HWND desktop = GetDesktopWindow();
-	RECT clientRect, windowRect, desktopRect;
+	RECT desktopRect, boundsRect;
 	
 	GetWindowRect(desktop, &desktopRect);
-	GetClientRect(window_handle, &clientRect);
-	GetWindowRect(window_handle, &windowRect);
 	
 	if (bounds.x == UserWindow::CENTERED)
 	{
@@ -673,13 +708,22 @@ void Win32UserWindow::SetBounds(Bounds bounds)
 		flags = SWP_HIDEWINDOW;
 	}
 	
-	// offset the size of the window chrome
-	//
-	int widthDelta = (windowRect.right - windowRect.left) - (clientRect.right - clientRect.left);
-	int heightDelta = (windowRect.bottom - windowRect.top) - (clientRect.bottom - clientRect.top);
+	boundsRect.left = bounds.x;
+	boundsRect.right = bounds.x + bounds.width;
+	boundsRect.top = bounds.y;
+	boundsRect.bottom = bounds.y + bounds.height;
 	
-	SetWindowPos(window_handle, NULL, bounds.x, bounds.y,
-		bounds.width + widthDelta, bounds.height + heightDelta, flags);
+	if (IsUsingChrome()) {
+		AdjustWindowRect(&boundsRect, GetWindowLong(window_handle, GWL_STYLE), !menu.isNull());
+		this->chromeWidth = boundsRect.right - boundsRect.left - (int)bounds.width;
+		this->chromeHeight = boundsRect.bottom - boundsRect.top - (int)bounds.height;
+	}
+	else {
+		this->chromeWidth = 0;
+		this->chromeHeight = 0;
+	}
+	
+	SetWindowPos(window_handle, NULL, bounds.x, bounds.y, bounds.width + chromeWidth, bounds.height + chromeHeight, flags);
 }
 
 void Win32UserWindow::SetTitle(std::string& title)
@@ -692,10 +736,10 @@ void Win32UserWindow::SetURL(std::string& url_)
 	std::string url = url_;
 
 	url = AppURLNormalizeURL(url, AppConfig::Instance()->GetAppID());
-	std::cout << "SetURL: " << url << std::endl;
-
+	logger->Debug("SetURL: %s", url.c_str());
+	
 	IWebMutableURLRequest* request = 0;
-	std::wstring method =L"GET" ;
+	std::wstring method = L"GET" ;
 
 	if (url.length() > 0 && (PathFileExists(url.c_str()) || PathIsUNC(url.c_str())))
 {
@@ -706,27 +750,27 @@ void Win32UserWindow::SetURL(std::string& url_)
 	}
 	std::wstring wurl = UTF8ToWide(url);
 
-	std::cout << "CoCreateInstance " << std::endl;
+	logger->Debug("CoCreateInstance");
 	HRESULT hr = CoCreateInstance(CLSID_WebMutableURLRequest, 0, CLSCTX_ALL, IID_IWebMutableURLRequest, (void**)&request);
 	if (FAILED(hr))
 		goto exit;
 
-	std::cout << "initWithURL: " << url << std::endl;
+	logger->Debug("initWithURL: %s", url.c_str());
 	hr = request->initWithURL(SysAllocString(wurl.c_str()), WebURLRequestUseProtocolCachePolicy, 60);
 	if (FAILED(hr))
 		goto exit;
 
-	std::cout << "set HTTP method" << std::endl;
+	logger->Debug("set HTTP method");
 	hr = request->setHTTPMethod(SysAllocString(method.c_str()));
 	if (FAILED(hr))
 		goto exit;
 
-	std::cout << "load request" << std::endl;
+	logger->Debug("load request");
 	hr = web_frame->loadRequest(request);
 	if (FAILED(hr))
 		goto exit;
 
-	std::cout << "set focus" << std::endl;
+	logger->Debug("set focus");
 	SetFocus(view_window_handle);
 
 exit:
@@ -1037,9 +1081,10 @@ void Win32UserWindow::SetupPosition()
 	Bounds b = GetBounds();
 	b.x = this->config->GetX();
 	b.y = this->config->GetY();
-
+	
 	this->SetBounds(b);
 }
+
 
 void Win32UserWindow::SetupSize()
 {

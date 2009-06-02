@@ -93,6 +93,7 @@ describe("native XHR tests",
 		// HTTPS connectivity
 		var url = 'https://api.appcelerator.net/p/v1/app-list';
 		var xhr = this.xhr;
+		var timer = null;
 		
 		this.xhr.onreadystatechange = function()
 		{
@@ -119,5 +120,60 @@ describe("native XHR tests",
 		{
 			callback.failed('native XHR HTTPS timed out');
 		},20000);
+	},
+	http_test_with_onchange_as_async: function(callback)
+	{
+		var url = 'http://api.appcelerator.net/p/v1/echo';
+		var xhr = this.xhr;
+		var timer = null;
+		
+		this.xhr.onchange = function()
+		{
+			try
+			{
+				// if we get here, we connected and received 
+				// HTTPS encrypted content
+				clearTimeout(timer);
+				callback.passed();
+			}
+			catch(e)
+			{
+				clearTimeout(timer);
+				callback.failed(e);
+			}
+		};
+		this.xhr.open("GET",url);
+		this.xhr.send(null);
+		
+		timer = setTimeout(function()
+		{
+			callback.failed('native XHR HTTP timed out');
+		},20000);
+	},
+	test_encode_decode: function()
+	{
+		var foo = Titanium.Network.encodeURIComponent(null);
+		value_of(foo).should_be('');
+		
+		foo = Titanium.Network.encodeURIComponent('');
+		value_of(foo).should_be('');
+		
+		foo = Titanium.Network.encodeURIComponent('a');
+		value_of(foo).should_be('a');
+
+		foo = Titanium.Network.decodeURIComponent(null);
+		value_of(foo).should_be('');
+
+		foo = Titanium.Network.decodeURIComponent('');
+		value_of(foo).should_be('');
+
+		foo = Titanium.Network.decodeURIComponent('a');
+		value_of(foo).should_be('a');
+		
+		foo = Titanium.Network.encodeURIComponent('a b');
+		value_of(foo).should_be('a%20b');
+
+		foo = Titanium.Network.decodeURIComponent(foo);
+		value_of(foo).should_be('a b');
 	}
 });

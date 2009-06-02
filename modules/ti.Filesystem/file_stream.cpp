@@ -209,6 +209,10 @@ namespace ti
 			text = (char*)ostr.str().c_str();
 			size = ostr.str().length();
 		}
+		else
+		{
+			throw ValueException::FromString("Could not write with type passed");
+		}
 
 		if (size==0)
 		{
@@ -321,7 +325,33 @@ namespace ti
 			{
 				std::string line;
 				std::getline(*fis, line);
-				result->SetObject(new Blob((std::string)line));
+#ifdef OS_WIN32
+				// In some cases std::getline leaves a CR on the end of the line in win32 -- why God, why?
+				if (!line.empty())
+				{
+					char lastChar = line.at(line.size()-1);
+					if (lastChar == '\r') {
+						line = line.substr(0, line.size()-1);
+					}
+				}
+#endif
+				if (line.empty() || line.size()==0)
+				{
+					if (fis->eof())
+					{
+						// if this is EOF, return null
+						result->SetNull();
+					}
+					else
+					{
+						// this is an empty line, just empty blob
+						result->SetObject(new Blob());
+					}
+				}
+				else
+				{
+					result->SetObject(new Blob((std::string)line));
+				}
 			}
 		}
 		catch (Poco::Exception& exc)
@@ -366,6 +396,10 @@ namespace ti
 			ostr << args.at(0)->ToDouble();
 			text = (char*)ostr.str().c_str();
 			size = ostr.str().length();
+		}
+		else
+		{
+			throw ValueException::FromString("Could not write with type passed");
 		}
 
 		if (size==0)

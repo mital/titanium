@@ -42,6 +42,7 @@ protected:
 	Win32WebKitPolicyDelegate *policyDelegate;
 	Bounds restore_bounds;
 	long restore_styles;
+	int chromeWidth, chromeHeight;
 
 	HWND window_handle, view_window_handle;
 	IWebView* web_view;
@@ -77,7 +78,7 @@ public:
 	static LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 	static Win32UserWindow* FromWindow(HWND hWnd);
 
-	Win32UserWindow(SharedUIBinding binding, WindowConfig* config, SharedUserWindow& parent);
+	Win32UserWindow(WindowConfig* config, SharedUserWindow& parent);
 	virtual ~Win32UserWindow();
 
 	void OpenFileChooserDialog(
@@ -184,6 +185,7 @@ private:
 	void InitWindow();
 	void InitWebKit();
 	
+	void SetupBounds();
 	void SetupPosition();
 	void SetupSize();
 	void SetupDecorations(bool showHide = true);

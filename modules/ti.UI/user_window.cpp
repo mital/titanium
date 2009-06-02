@@ -14,10 +14,10 @@ using namespace ti;
 // Initialize our constants here
 int UserWindow::CENTERED = WindowConfig::DEFAULT_POSITION;
 
-UserWindow::UserWindow(SharedUIBinding binding, WindowConfig *config, SharedUserWindow& parent) :
+UserWindow::UserWindow(WindowConfig *config, SharedUserWindow& parent) :
 	kroll::StaticBoundObject(),
-	binding(binding),
-	host(binding->GetHost()),
+	binding(UIModule::GetInstance()->GetUIBinding()),
+	host(kroll::Host::GetInstance()),
 	config(config),
 	parent(parent),
 	next_listener_id(0),
@@ -462,11 +462,6 @@ Host* UserWindow::GetHost()
 	return this->host;
 }
 
-SharedUIBinding UserWindow::GetBinding()
-{
-	return this->binding;
-}
-
 void UserWindow::Open()
 {
 	this->FireEvent(OPEN);
@@ -717,7 +712,11 @@ void UserWindow::_GetId(const kroll::ValueList& args, kroll::SharedValue result)
 void UserWindow::_Open(const kroll::ValueList& args, kroll::SharedValue result)
 {
 	// Don't allow a window to be opened twice
-	if (!this->active && !this->initialized)
+	if (this->active || this->initialized)
+	{
+		throw ValueException::FromString("Cannot open a window more than once");
+	}
+	else
 	{
 		this->Open();
 	}
@@ -805,6 +804,7 @@ void UserWindow::_SetWidth(const kroll::ValueList& args, kroll::SharedValue resu
 		if (w > 0)
 		{
 			w = UserWindow::Constrain(w, config->GetMinWidth(), config->GetMaxWidth());
+			Logger::Get("UI.UserWindow")->Debug("config->SetWidth(%0.2f)", w);
 			this->config->SetWidth(w);
 			if (this->active)
 			{
@@ -1760,15 +1760,40 @@ void UserWindow::RegisterJSContext(JSGlobalContextRef context)
 	// window and global variable scope
 	this->Set("window", window_value);
 
+	UserWindow::LoadUIJavaScript(context);
+
 	SharedKObject event = new StaticBoundObject();
 	event->Set("scope", Value::NewObject(frame_global));
+	event->Set("url", Value::NewString(config->GetURL().c_str()));
 	this->FireEvent(INIT, event);
 }
 
-void UserWindow::PageLoaded(SharedKObject global_bound_object, std::string &url)
+void UserWindow::LoadUIJavaScript(JSGlobalContextRef context)
+{
+	std::string module_path = UIModule::GetInstance()->GetPath();
+	std::string js_path = FileUtils::Join(module_path.c_str(), "ui.js", NULL);
+	try
+	{
+		KJSUtil::EvaluateFile(context, (char*) js_path.c_str());
+	}
+	catch (kroll::ValueException &e)
+	{
+		SharedString ss = e.DisplayString();
+		Logger* logger = Logger::Get("UIModule");
+		logger->Error("Error loading %s: %s",js_path.c_str(),(*ss).c_str());
+	}
+	catch (...)
+	{
+		Logger* logger = Logger::Get("UIModule");
+		logger->Error("Unexpected error loading %s",js_path.c_str());
+	}
+}
+
+void UserWindow::PageLoaded(
+	SharedKObject globalObject, std::string &url, JSGlobalContextRef context)
 {
 	SharedKObject event = new StaticBoundObject();
-	event->Set("scope", Value::NewObject(global_bound_object));
+	event->Set("scope", Value::NewObject(globalObject));
 	event->Set("url", Value::NewString(url.c_str()));
 	this->FireEvent(LOAD, event);
 }
