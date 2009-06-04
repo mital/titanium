@@ -13,9 +13,10 @@ namespace ti
 {
 std::vector<Win32TrayItem *> trayItems;
 
-Win32TrayItem::Win32TrayItem(SharedString iconPath, SharedKMethod cb)
+Win32TrayItem::Win32TrayItem(SharedString iconPath, SharedKMethod cb_single_click, SharedKMethod cb_double_click)
 {
-	this->callback = cb;
+	this->callback_single_click = cb_single_click;
+	this->callback_double_click = cb_double_click;
 	this->trayMenu = NULL;
 
 	this->CreateTrayIcon(*iconPath, std::string("Titanium Application"));
@@ -155,11 +156,11 @@ bool Win32TrayItem::InvokeLeftClickCallback(int trayIconID)
 	{
 		Win32TrayItem* item = trayItems[i];
 
-		if(item->trayIconData && item->trayIconData->uID == trayIconID)
+		if(item->trayIconData)
 		{
-			if(item->callback)
+			if(item->callback_single_click)
 			{
-				KMethod* cb = (KMethod*) item->callback;
+				KMethod* cb = (KMethod*) item->callback_single_click;
 
 				// TODO: Handle exceptions in some way
 				try
@@ -169,7 +170,7 @@ bool Win32TrayItem::InvokeLeftClickCallback(int trayIconID)
 				}
 				catch(...)
 				{
-					std::cout << "Menu callback failed" << std::endl;
+					std::cout << "Menu callback_single_click failed" << std::endl;
 				}
 
 				return true;
@@ -179,4 +180,43 @@ bool Win32TrayItem::InvokeLeftClickCallback(int trayIconID)
 
 	return false;
 }
+/*static*/
+bool Win32TrayItem::InvokeLeftDoubleClickCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	int trayIconID = LOWORD(wParam);
+
+	return InvokeLeftDoubleClickCallback(trayIconID);
+}
+/*static*/
+bool Win32TrayItem::InvokeLeftDoubleClickCallback(int trayIconID)
+{
+	for(size_t i = 0; i < trayItems.size(); i++)
+	{
+		Win32TrayItem* item = trayItems[i];
+
+		if(item->trayIconData && item->trayIconData->uID == trayIconID)
+		{
+			if(item->callback_double_click)
+			{
+				KMethod* cb = (KMethod*) item->callback_double_click;
+
+				// TODO: Handle exceptions in some way
+				try
+				{
+					ValueList args;
+					cb->Call(args);
+				}
+				catch(...)
+				{
+					std::cout << "Menu callback_single_click failed" << std::endl;
+				}
+
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 }

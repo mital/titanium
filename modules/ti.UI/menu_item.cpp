@@ -181,7 +181,7 @@ namespace ti
 	{
 		this->RawSet("icon", args.at(0));
 		std::string icon_path = std::string(args.at(0)->ToString());
-		this->SetLabel(icon_path);
+		this->SetIcon(icon_path);
 	}
 
 	/* The function below, modify the bound object values
